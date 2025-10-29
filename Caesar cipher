@@ -1,0 +1,93 @@
+#include <iostream>
+#include <string>
+#include <windows.h>
+using namespace std;
+
+int main() {
+    SetConsoleOutputCP(CP_UTF8);  // для русских букв в консоли
+    SetConsoleCP(CP_UTF8);
+
+    int choice, key;
+    string text, result;
+    string lastEncrypted = "";    // храним последний зашифрованный текст
+
+    while (true) {
+        // Меню программы
+        cout << "\n == Шифр Цезаря == \n";
+        cout << "1. Зашифровать сообщение\n";
+        cout << "2. Расшифровать сообщение\n";
+        cout << "3. Показать зашифрованное сообщение\n";
+        cout << "4. Выход\n";
+        cout << "Выберите действие: ";
+        cin >> choice;
+
+        // Выход из программы
+        if (choice == 4) {
+            cout << "До свидания!\n";
+            break;
+        }
+
+        // Показ последнего зашифрованного сообщения
+        if (choice == 3) {
+            if (lastEncrypted.empty()) {
+                cout << "Нет зашифрованных сообщений.\n";
+            } else {
+                cout << "Последнее зашифрованное сообщение: " << lastEncrypted << endl;
+            }
+            continue;
+        }
+
+        // Проверка выбора
+        if (choice != 1 && choice != 2) {
+            cout << "Неверный выбор. Попробуйте снова\n";
+            continue;
+        }
+
+        // Ввод текста
+        cin.ignore();  // очищаем буфер
+        cout << "Введите текст: ";
+        getline(cin, text);
+
+        // Ввод ключа шифрования
+        cout << "Введите ключ (1-25): ";
+        cin >> key;
+
+        // Проверка ключа
+        if (key < 1 || key > 25) {
+            cout << "Ошибка! Ключ должен быть от 1 до 25.\n";
+            continue;
+        }
+
+        // Шифрование/дешифрование
+        result = "";
+        int shift = (choice == 1) ? key : -key;  // выбираем направление сдвига
+
+        // Обрабатываем каждый символ текста
+        for (int i = 0; i < text.length(); i++) {
+            char c = text[i];
+
+            // Сдвигаем только английские буквы
+            if (c >= 'A' && c <= 'Z') {
+                // Сдвиг для заглавных букв: A=0, B=1... Z=25
+                c = (c - 'A' + shift + 26) % 26 + 'A';
+            }
+            else if (c >= 'a' && c <= 'z') {
+                // Сдвиг для строчных букв: a=0, b=1... z=25
+                c = (c - 'a' + shift + 26) % 26 + 'a';
+            }
+            // Остальные символы (пробелы, цифры, знаки) не меняем
+
+            result += c;  // добавляем символ в результат
+        }
+
+        // Вывод результата
+        cout << "\nРезультат: " << result << endl;
+
+        // Сохраняем зашифрованный текст
+        if (choice == 1) {
+            lastEncrypted = result;
+        }
+    }
+
+    return 0;
+}
