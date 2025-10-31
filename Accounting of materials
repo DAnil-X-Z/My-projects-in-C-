@@ -1,0 +1,396 @@
+#include <iostream>
+#include <vector>
+#include <map>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+#include <algorithm>
+#include <windows.h>
+
+using namespace std;
+
+const string FILE_NAME = "material.dat"; // Имя файла для сохранения данных
+
+// Типы материалов
+enum class MaterialType {
+  WOOD, MDF, POLYWOOD  
+};
+
+// Сорт древесины
+enum class WoodGrade {
+    A = 0, B = 1, C = 2
+};
+
+// Структура учёта древесины
+struct Wood {
+    string species;
+    WoodGrade grade;
+    double volume;
+    
+    bool operator<(const Wood& other) const {
+        if (species != other.species) return species < other.species;
+        return grade < other.grade;
+    }
+};
+
+// Структура учёта MDF
+struct MDF {
+    int thickness;
+    int sheets;
+};
+
+// Структура для фанеры
+struct Polywood {
+    int thickness;
+    pair<double, double> size;
+    int grade;
+    int sheets;
+};
+
+// Класс Warehouse (управляет остатками древесины, МДФ и фанеры на складе)
+class Warehouse {
+private:
+    vector<Wood> woods;
+    vector<MDF> mdfLists;
+    vector<Polywood> plywoodLists;
+    
+    // Рассчитывает объём одной доски в кубах
+    double calculateVolume(double thickness_mm, double width_cm, double length_cm) {
+        // Переводим в метры
+        double t = thickness_mm / 1000.0;
+        double w = width_cm / 100.0;
+        double l = length_cm / 100.0;
+        
+        return t * w * l;
+    }
+
+    // Преобразует сорт (enum) в строку "A", "B", "C"
+    string gradeToString(WoodGrade g) {
+        switch (g) {
+            case WoodGrade::A: return "A";
+            case WoodGrade::B: return "B";
+            case WoodGrade::C: return "C";
+        }
+        return "Неизвестный сорт";
+    }
+
+    // Преобразуем число в сорт (enum)
+    WoodGrade stringToGrade(int g) {
+        switch (g) {
+            case 0: return WoodGrade::A;
+            case 1: return WoodGrade::B;
+            case 2: return WoodGrade::C;
+            default: return WoodGrade::C;
+        }
+    }
+
+public:
+    // Загрузка данных из файла
+    void loadfile() {
+        ifstream file(FILE_NAME);
+        if (!file.is_open()) return;
+        
+        string line;
+        while (getline(file, line)) {
+           stringstream ss(line);
+           string type;
+           ss >> type; // Указываем тип материала
+           
+           if (type == "WOOD") {
+               string species;
+               int gradeInt;
+               double vol;
+               ss >> species >> gradeInt >> vol;
+               woods.push_back({species, stringToGrade(gradeInt), vol});
+           } else if (type == "MDF") {
+               int th;
+               int sheets;
+               ss >> th >> sheets;
+               mdfLists.push_back({th, sheets});
+           } else if (type == "POLYWOOD") {
+               int th;
+               double w, h;
+               int grade, sheets;
+               ss >> th >> w >> h >> grade >> sheets;
+               plywoodLists.push_back({th, {w, h}, grade, sheets});
+           }
+        }
+        file.close();
+    }
+
+    // Сохраняем данные в файл
+    void saveToFile() {
+        ofstream file(FILE_NAME);
+        if (!file.is_open()) return;
+        
+        for (const auto& w : woods) {
+            file << "WOOD " << w.species << " " << static_cast<int>(w.grade) << " " << fixed << setprecision(3) << w.volume << "\n";
+        }
+        for (const auto& m : mdfLists) {
+            file << "MDF " << m.thickness << " " << m.sheets << "\n";
+        }
+        for (const auto& p : plywoodLists) {
+            file << "POLYWOOD " << p.thickness << " " << p.size.first << " " << p.size.second << " " << p.grade << " " << p.sheets << "\n";
+        }
+        file.close();
+    }
+
+    // Выводим остатки древесины по сортам
+    void showWoodStock() {
+        if (woods.empty()) {
+            cout << "Склад пустой. Остатков по лесу не найдено.\n";
+            return;
+        }
+        
+        map<string, double> totalBySpecies;
+        sort(woods.begin(), woods.end());
+        
+        string currentSpecies = "";
+        for (const auto& w : woods) {
+            if (w.species != currentSpecies) {
+                if (!currentSpecies.empty()) {
+                    cout << "Общий остаток " << currentSpecies << " на складе: "
+                         << fixed << setprecision(3) << totalBySpecies[currentSpecies] << " куб.м\n\n";
+                }
+                currentSpecies = w.species;
+                cout << currentSpecies << ":\n";
+            }
+            cout << "  Сорт " << gradeToString(w.grade) << " — " 
+                 << fixed << setprecision(3) << w.volume << " куб.м\n";
+            totalBySpecies[w.species] += w.volume;
+        }
+        if (!currentSpecies.empty()) {
+            cout << "Общий остаток " << currentSpecies << " на складе: "
+                 << fixed << setprecision(3) << totalBySpecies[currentSpecies] << " куб.м\n";
+        }
+    }
+    
+    // Добавить/обновить лес
+    void updateWood(const string& species, WoodGrade grade, double volume, bool add = true) {
+        for (auto& w : woods) {
+            if (w.species == species && w.grade == grade) {
+                w.volume += (add ? volume : -volume);
+                if (w.volume < 0) w.volume = 0;
+                saveToFile();
+                return;
+            }
+        }
+        if (add) {
+            woods.push_back({species, grade, volume});
+            saveToFile();
+        }
+    }
+    
+    // Списание досок по штукам → в кубы
+    void writeOffWoodByPieces(const string& species, int gradeInt, double thickness_mm, double width_cm, double length_cm, int count) {
+        double volPerPiece = calculateVolume(thickness_mm, width_cm, length_cm);
+        double totalVol = volPerPiece * count;
+        updateWood(species, stringToGrade(gradeInt), totalVol, false);
+    }
+    
+    void showMDFStock() {
+        if (mdfLists.empty()) {
+            cout << "Нет остатков МДФ на складе.\n";
+            return;
+        }
+        for (const auto& m : mdfLists) {
+            cout << "МДФ: толщина " << m.thickness << " мм, остаток: " << m.sheets << " лист(ов)\n";
+        }
+    }
+    
+    void updateMDF(int thickness, int delta, bool add = true) {
+        for (auto& m : mdfLists) {
+            if (m.thickness == thickness) {
+                m.sheets += (add ? delta : -delta);
+                if (m.sheets < 0) m.sheets = 0;
+                saveToFile();
+                return;
+            }
+        }
+        if (add) {
+            mdfLists.push_back({thickness, delta});
+            saveToFile();
+        }
+    }
+        
+    void showPolywoodStock() {
+        if (plywoodLists.empty()) {
+            cout << "Нет остатков фанеры на складе.\n";
+            return;
+        }
+        for (const auto& p : plywoodLists) {
+            cout << "Фанера: " << p.size.first << "x" << p.size.second << " м, толщина " 
+                 << p.thickness << " мм, сорт " << p.grade << ", остаток: " 
+                 << p.sheets << " лист(ов)\n";
+        }
+    }
+    
+    void updatePolywood(int thickness, pair<double, double> size, int grade, int delta, bool add = true) {
+        for (auto& p : plywoodLists) {
+            if (p.thickness == thickness && p.size == size && p.grade == grade) {
+                p.sheets += (add ? delta : -delta);
+                if (p.sheets < 0) p.sheets = 0;
+                saveToFile();
+                return;
+            }
+        }
+        if (add) {
+            plywoodLists.push_back({thickness, size, grade, delta});
+            saveToFile();
+        }
+    }
+        
+    void run() {
+        
+        while (true) {
+            cout << "\n=== МЕНЮ ===\n";
+            cout << "1. Показать все остатки\n";
+            cout << "2. Работа с материалом\n";
+            cout << "3. Выход\n";
+            cout << "Выберите действие: ";
+            
+            int choice;
+            cin >> choice;
+            
+            if (choice == 1) {
+                cout << "\n--- Остатки по древесине ---\n";
+                showWoodStock();
+                cout << "\n--- Остатки по МДФ ---\n";
+                showMDFStock();
+                cout << "\n--- Остатки по фанере ---\n";
+                showPolywoodStock();
+            }
+            else if (choice == 2) {
+                cout << "\nВыберите материал:\n";
+                cout << "1. Бук\n";
+                cout << "2. Дуб\n";
+                cout << "3. Сосна\n";
+                cout << "4. МДФ\n";
+                cout << "5. Фанера 1.5x1.5 м\n";
+                cout << "6. Фанера 1.24x2.5 м\n";
+                cout << "Ваш выбор: ";
+                int mat;
+                cin >> mat;
+                
+                if (mat >= 1 && mat <= 3) {
+                    string species = (mat == 1) ? "Бук" : (mat == 2 ? "Дуб" : "Сосна");
+                    cout << "\nОстаток по " << species << ":\n";
+                    bool found = false;
+                    double total = 0.0;
+                    for (const auto& w : woods) {
+                        if (w.species == species) {
+                            cout << "  Сорт " << gradeToString(w.grade) << ": " 
+                                 << fixed << setprecision(1) << w.volume << " куб.м\n";
+                            total += w.volume;
+                            found = true;
+                        }
+                    }
+                    if (!found) {
+                        cout << "  Нет данных по этой породе.\n";
+                    } else {
+                        cout << "Общий остаток: " << fixed << setprecision(1) << total << " куб.м\n";
+                    }
+                    
+                    cout << "\n1. Обновить остаток\n";
+                    cout << "2. Списать по штукам\n";
+                    cout << "Ваш выбор: ";
+                    int upd;
+                    cin >> upd;
+                    if (upd == 1) {
+                        cout << "1. Увеличить\n2. Уменьшить\n";
+                        int op;
+                        cin >> op;
+                        cout << "Введите сорт (0=A, 1=B, 2=C): ";
+                        int gradeInt;
+                        cin >> gradeInt;
+                        cout << "Введите объём в куб.м: ";
+                        double vol;
+                        cin >> vol;
+                        // ДОП УСЛОВИЕ: проверка на объем
+                        if (vol < 0) {
+                            cout << "Ошибка: объём не может быть отрицательным!\n";
+                        } else if (vol == 0) {
+                            cout << "Объём равен нулю — ничего не изменено.\n";
+                        } else {
+                            updateWood(species, stringToGrade(gradeInt), vol, op == 1);
+                            cout << "Остаток обновлён.\n";
+                        }
+                    }
+
+                    else if (upd == 2) {
+                        cout << "Введите сорт (0=A, 1=B, 2=C): ";
+                        int gradeInt;
+                        cin >> gradeInt;
+
+                        cout << "Введите параметры доски:\n";
+                        double th, w, l;
+                        int count;
+                        cout << "Толщина (мм): ";
+                        cin >> th;
+                        cout << "Ширина (см): ";
+                        cin >> w;
+                        cout << "Длина (см): ";
+                        cin >> l;
+                        cout << "Количество досок: ";
+                        cin >> count;
+
+                        if (count > 0 && th > 0 && w > 0 && l > 0) {
+                            writeOffWoodByPieces(species, gradeInt, th, w, l, count);
+                            cout << "Списание по штукам выполнено.\n";
+                        } else {
+                            cout << "Ошибка: все значения должны быть положительными.\n";
+                        }
+                    }
+
+                }
+                else if (mat == 4) {
+                    cout << "Введите толщину МДФ листа (16/18/20 мм): ";
+                    double th;
+                    cin >> th;
+                    cout << "1. Увеличить\n2. Уменьшить\n";
+                    cout << "Ваш выбор: ";
+                    int op;
+                    cin >> op;
+                    cout << "Количество листов: ";
+                    int sheets;
+                    cin >> sheets;
+                    updateMDF(th, sheets, op == 1);
+                    cout << "Остаток МДФ обновлён.\n";
+                }
+                else if (mat == 5 || mat == 6) {
+                    pair<double, double> size = (mat == 5) ? make_pair(1.5, 1.5) : make_pair(1.24, 2.5);
+                    cout << "Толщина фанеры (10/12/16/18 мм): ";
+                    double th;
+                    cin >> th;
+                    cout << "Сортность (2/3/4): ";
+                    int grade;
+                    cin >> grade;
+                    cout << "1. Увеличить\n2. Уменьшить\n";
+                    int op;
+                    cin >> op;
+                    cout << "Количество листов: ";
+                    int sheets;
+                    cin >> sheets;
+                    updatePolywood(th, size, grade, sheets, op == 1);
+                    cout << "Остаток фанеры обновлён.\n";
+                }
+            }
+            else if (choice == 3) {
+                cout << "До свидания!\n";
+                break;
+            }
+            else {
+                cout << "Неверный выбор. Попробуйте снова.\n";
+            }
+        }
+    }
+};
+
+int main() {
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+
+    Warehouse w;
+    w.run();
+    return 0;
+}
